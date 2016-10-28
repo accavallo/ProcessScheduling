@@ -1,5 +1,4 @@
-//
-//  main.c
+//  user.c
 //  user
 //
 //  Created by Tony on 10/25/16.
@@ -20,9 +19,7 @@ int main(int argc, const char * argv[]) {
      *******************/
     
     const int ID = atoi(argv[0]);
-    
-//    printf("Hello, user %i!\n", ID);
-    
+        
     /* Attach to shared memory for time */
     seconds_memory = shmget(TIMEKEY, sizeof(int) * 2, 0777);
     if (seconds_memory == -1) {
