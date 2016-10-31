@@ -43,21 +43,34 @@ int main(int argc, const char * argv[]) {
     if ((blockArray = shmat(block_memory, NULL, 0)) < 0) {
         printf("User %i failed to attach to block memory. Exiting...\n", ID);
     }
-    sleep(1);
+    
+    long long unsigned quantum = 0;
+//    while (1) {
+//        if (nextInQueue) {
+//            
+//        }
+//        sleep(1);
+//    }
 //    printf("blockArray[%i].pid: %i\n", ID, blockArray[ID-1].pid);
     
-    printf("%i's creation time is %llu\n", ID, blockArray[ID-1].timeCreated);
-    long long currentTime = *seconds * 1000000000 + *nano_seconds;
-    while ((currentTime - blockArray[ID-1].timeCreated) < 5000000) {
-        
-        
-        currentTime = *seconds * 1000000000 + *nano_seconds;
-    }
+    printf("%i's creation time is %llu\nWith a priority of %i\n", ID, blockArray[ID-1].timeCreated, blockArray[ID-1].priority);
+    /* 50000000 == 50 milliseconds */
+//    long long currentTime = *seconds * 1000000000 + *nano_seconds;
+//    while ((currentTime - blockArray[ID-1].timeCreated) < 50000000) {
+//        currentTime = *seconds * 1000000000 + *nano_seconds;
+//    }
     
     printf("Process %i has waited for 50 milliseconds\n", ID);
+    blockArray[ID-1].isValid = 0;
     sleep(1);
     detachEverything();
     return 0;
+}
+
+void readyStateWait() {
+    while (1) {
+        sleep(1);
+    }
 }
 
 void faultHandler() {

@@ -37,6 +37,12 @@ typedef struct process_control_block {
     int procID;                 //Process ID the program sets
     pid_t    pid;               //ACTUAL process ID
 } PCB;
+
+typedef struct process_queue {
+    PCB *process;
+    PCB *next_node;
+}procq;
+
 int seconds_memory;
 int block_memory;
 
@@ -46,17 +52,19 @@ unsigned int *nano_seconds;
 unsigned int *bit_vector;
 PCB *blockArray;
 
-
-
-void printHelp();
 void faultHandler();
 void interruptHandler();
 void otherInterrupt();
 void alarmHandler();
 void detachEverything();
+
+/* OSS specific methods */
 void newProcess(int, int);
+void removeProcess(int);
+void printHelp();
 
+/* USER specific methods */
+void readyStateWait();
 
-#define BIT(x) (1<<(x))
 
 #endif /* Proj4_h */

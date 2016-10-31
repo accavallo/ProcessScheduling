@@ -7,11 +7,13 @@
 
 #include "Proj4.h"
 
+procq *queue0, *queue1, *queue2, *queue3;
+
 int main(int argc, const char * argv[]) {
     signal(SIGSEGV, faultHandler);
     signal(SIGINT, interruptHandler);
     
-    int option, index, time_increment = 1400;
+    int option, index, time_increment = 1000;
     char *fileName = "logfile.txt";
     
     while ((option = getopt(argc, (char **)argv, "hm:l:")) != -1) {
@@ -81,23 +83,33 @@ int main(int argc, const char * argv[]) {
         perror("OSS PCB shmat");
         exit(1);
     }
-
+    
     processCount = 0;
     char procID[5];
     int bitArray[18] = {0}, totalProcesses = 0;
+    long long unsigned creationTime = 0, currentTime, creationTimeSet = 0;
     pid_t pid, wpid;
     
     srand((unsigned)time(0));
-    alarm(10);
+    alarm(90);
     signal(SIGALRM, alarmHandler);
     while (*seconds < 50 || totalProcesses == 100) {
-        *nano_seconds += (1 + rand() % time_increment);
+        if (creationTimeSet == 0) {
+            creationTime = *seconds * 1000000000 + *nano_seconds + (rand() % 2000000000);
+            creationTimeSet = 1;
+            printf("Creation time of next process is set for %llu\n", creationTime);
+        }
+        currentTime = *seconds * 1000000000 + *nano_seconds;
+        
+        printf("currentTime: %llu\n", currentTime);
+        *nano_seconds += rand() % time_increment;
         if (*nano_seconds >= 1000000000) {
             (*seconds)++;
             *nano_seconds %= 1000000000;
         }
         
-        if (processCount < 18) {
+        /* No more than 18 processes at a time, and the current time needs to be after the creation time that was set "randomly". */
+        if (processCount < 18 && creationTime <= currentTime) {
             for (index = 0; index < 18; index++)
                 if(bitArray[index] == 0) {
                     bitArray[index] = 1;
@@ -107,23 +119,34 @@ int main(int argc, const char * argv[]) {
             pid = fork();
             processCount++;
             totalProcesses++;
+            creationTimeSet = 0;
             sprintf(procID, "%i", processCount);
             
             if (pid == 0) {
                 newProcess(processCount, index);        //Not necessary, but it cleans up my main.
                 execl("./user", procID, (char *)NULL);
+                removeProcess(processCount-1);          //If the execl fails, this will essentially clear that process control block.
                 exit(EXIT_FAILURE);
             }
+//        } else {
+//            printf("Waiting time is %i.%i\n", *seconds, *nano_seconds);
         }
+        
+        /* Release finished processes and set the validity of that process in the bit vector back to 0. */
         int processID = waitpid(0, NULL, WNOHANG);
         if (processID > 0) {
             printf("Process %i finished execution.\n", processID);
             processCount--;
-            for (index = 0; index < 18; index++)
-                if (blockArray[index].pid == processID)
+            for (index = 0; index < 18; index++) {
+                if (blockArray[index].pid == processID) {
                     bitArray[index] = 0;
+                    blockArray[index].isValid = 0;
+                    break;
+                }
+            }
         }
-    }
+        sleep(1);
+    }   /* End while loop */
     
     sleep(3);
     while ((wpid = wait(&status)) > 0);
@@ -141,10 +164,25 @@ void newProcess(int processCount, int index) {
     blockArray[processCount-1].timeElapsed = 0;
     blockArray[processCount-1].burstTime = 0;
     blockArray[processCount-1].timeInSystem = 0;
-    blockArray[processCount-1].priority = rand() % 4;
+    
+    /* Figure out something to put most of the processes in queue 1 and about 10% in queue 0. 
+       Queues 2 and 3 are only available during runtime. */
+    blockArray[processCount-1].priority = *nano_seconds % 4;
     blockArray[processCount-1].isValid = 1;
     blockArray[processCount-1].procID = index;
     blockArray[processCount-1].pid = getpid();
+}
+
+void removeProcess(int index) {
+    blockArray[index].timeCreated = 0;
+    blockArray[index].runTime = 0;
+    blockArray[index].timeElapsed = 0;
+    blockArray[index].burstTime = 0;
+    blockArray[index].timeInSystem = 0;
+    blockArray[index].priority = 4;
+    blockArray[index].isValid = 0;
+    blockArray[index].procID = 0;
+    blockArray[index].pid = 0;
 }
 
 void printHelp() {
