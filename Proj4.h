@@ -39,8 +39,8 @@ typedef struct process_control_block {
 } PCB;
 
 typedef struct process_queue {
-    PCB *process;
-    PCB *next_node;
+    PCB process;
+    struct process_queue *next_node;
 }procq;
 
 int seconds_memory;

@@ -10,7 +10,7 @@
 int main(int argc, const char * argv[]) {
     
     /****** NOTE: ******
-     argv[0] is the child number given by oss;
+     argv[0] is the child number given by oss. THIS IS 0-BASED!!
      argv[1] is
      argv[2] is 
      argv[3] is
@@ -51,24 +51,35 @@ int main(int argc, const char * argv[]) {
 //        }
 //        sleep(1);
 //    }
-//    printf("blockArray[%i].pid: %i\n", ID, blockArray[ID-1].pid);
+//    printf("blockArray[%i].pid: %i\n", ID, blockArray[ID].pid);
     
-    printf("%i's creation time is %llu\nWith a priority of %i\n", ID, blockArray[ID-1].timeCreated, blockArray[ID-1].priority);
+    printf("%i's creation time is %llu\nWith a priority of %i\n", ID+1, blockArray[ID].timeCreated, blockArray[ID].priority);
     /* 50000000 == 50 milliseconds */
-//    long long currentTime = *seconds * 1000000000 + *nano_seconds;
-//    while ((currentTime - blockArray[ID-1].timeCreated) < 50000000) {
-//        currentTime = *seconds * 1000000000 + *nano_seconds;
-//    }
+    /* Need to set how long the program will run for */
+    long long currentTime = *seconds * 1000000000 + *nano_seconds;
+    long long previousTime = *seconds * 1000000000 + *nano_seconds;
+    while (blockArray[ID].timeElapsed <= blockArray[ID].runTime || blockArray[ID].timeElapsed <= 50000000) {
+//        while (blockArray[ID].timeElapsed < 50000000) {
+        if (blockArray[ID].isValid) {
+            currentTime = *seconds * 1000000000 + *nano_seconds;
+            blockArray[ID].timeElapsed += currentTime - previousTime;
+            previousTime = currentTime;
+        } else {
+            readyStateWait(ID);
+        }
+    }
     
     printf("Process %i has waited for 50 milliseconds\n", ID);
-    blockArray[ID-1].isValid = 0;
+    blockArray[ID].isValid = 0;
     sleep(1);
     detachEverything();
     return 0;
 }
 
-void readyStateWait() {
+void readyStateWait(int ID) {
     while (1) {
+        if (blockArray[ID].isValid)
+            break;
         sleep(1);
     }
 }

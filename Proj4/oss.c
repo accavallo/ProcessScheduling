@@ -55,8 +55,9 @@ int main(int argc, const char * argv[]) {
     printf("pid = %i\n", getpid());
     
     /* Set up shared memory */
-    /***** NOTE: *****/
-    /* seconds_memory ONLY NEEDS TO BE sizeof(int) * 2! block_memory needs only be sizeof(PCB) * 18 */
+    /******** NOTE: *********
+     seconds_memory ONLY NEEDS TO BE sizeof(int) * 2! block_memory needs only be sizeof(PCB) * 18
+     ************************/
     if ((seconds_memory = shmget(TIMEKEY, sizeof(int) * 2, IPC_CREAT | 0777)) == -1) {
         printf("Error: Failed to create shared memory for seconds. Exiting program...\n");
         perror("OSS shmcreat");
@@ -87,8 +88,10 @@ int main(int argc, const char * argv[]) {
     processCount = 0;
     char procID[5];
     int bitArray[18] = {0}, totalProcesses = 0;
-    long long unsigned creationTime = 0, currentTime, creationTimeSet = 0;
+    long long unsigned creationTime = 0, currentTime, creationTimeSet = 0, process_idle_time = 0;
     pid_t pid, wpid;
+    
+    queue0 = NULL, queue1 = NULL, queue2 = NULL, queue3 = NULL;
     
     srand((unsigned)time(0));
     alarm(90);
@@ -117,10 +120,10 @@ int main(int argc, const char * argv[]) {
                 }
             
             pid = fork();
+            sprintf(procID, "%i", processCount);
             processCount++;
             totalProcesses++;
             creationTimeSet = 0;
-            sprintf(procID, "%i", processCount);
             
             if (pid == 0) {
                 newProcess(processCount, index);        //Not necessary, but it cleans up my main.
@@ -130,6 +133,21 @@ int main(int argc, const char * argv[]) {
             }
 //        } else {
 //            printf("Waiting time is %i.%i\n", *seconds, *nano_seconds);
+        }
+        
+        
+        
+        /* Do queue stuff here. Maybe some if else statements for the various queues. Maybe flip the isValid bit in the PCB and have the
+           process wait until it is flipped */
+        /* Ensure something exists in each queue, no else statements, before executing any code */
+        if (queue0) {
+            
+        } else if (queue1) {
+            
+        } else if (queue2) {
+            
+        } else if (queue3) {
+            
         }
         
         /* Release finished processes and set the validity of that process in the bit vector back to 0. */
@@ -158,6 +176,14 @@ int main(int argc, const char * argv[]) {
     return 0;
 }
 
+void addToQueue(procq *queue, PCB process) {
+    while (queue) {
+        queue = queue->next_node;
+    }
+    queue->process = process;
+    queue->next_node = NULL;
+}
+
 void newProcess(int processCount, int index) {
     blockArray[processCount-1].timeCreated = *seconds * 1000000000 + *nano_seconds;
     blockArray[processCount-1].runTime = 0;
@@ -167,8 +193,13 @@ void newProcess(int processCount, int index) {
     
     /* Figure out something to put most of the processes in queue 1 and about 10% in queue 0. 
        Queues 2 and 3 are only available during runtime. */
-    blockArray[processCount-1].priority = *nano_seconds % 4;
-    blockArray[processCount-1].isValid = 1;
+    int queueChance = *nano_seconds % 100;
+    if (queueChance >= 11)
+        blockArray[processCount-1].priority = 1;
+    else
+        blockArray[processCount-1].priority = 0;
+    
+    blockArray[processCount-1].isValid = 0;
     blockArray[processCount-1].procID = index;
     blockArray[processCount-1].pid = getpid();
 }
