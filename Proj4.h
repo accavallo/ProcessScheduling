@@ -32,6 +32,7 @@ typedef struct process_control_block {
     long long timeElapsed;      //How long process has run
     long long burstTime;        //Time process used during last burst
     long long timeInSystem;     //How long the process has actually been in the system.
+//    int didFinish;              //Determines whether the process is completely finished.
     int priority;               //Priority of the process
     int isValid;                //Is process still valid
     int procID;                 //Process ID the program sets
@@ -39,9 +40,10 @@ typedef struct process_control_block {
 } PCB;
 
 typedef struct process_queue {
-    PCB process;
+    int location;
+    PCB *process;
     struct process_queue *next_node;
-}procq;
+}procq_t;
 
 int seconds_memory;
 int block_memory;
@@ -61,6 +63,9 @@ void detachEverything();
 /* OSS specific methods */
 void newProcess(int, int);
 void removeProcess(int);
+void addToQueue(int, int);
+//void addToQueue(int, PCB *, int);
+void printQueue(procq_t *);
 void printHelp();
 
 /* USER specific methods */

@@ -53,9 +53,10 @@ int main(int argc, const char * argv[]) {
 //    }
 //    printf("blockArray[%i].pid: %i\n", ID, blockArray[ID].pid);
     
-    printf("%i's creation time is %llu\nWith a priority of %i\n", ID+1, blockArray[ID].timeCreated, blockArray[ID].priority);
+    printf("%i's creation time is %llu with a priority of %i\n", ID+1, blockArray[ID].timeCreated, blockArray[ID].priority);
     /* 50000000 == 50 milliseconds */
     /* Need to set how long the program will run for */
+    srand((unsigned)time(0));
     long long currentTime = *seconds * 1000000000 + *nano_seconds;
     long long previousTime = *seconds * 1000000000 + *nano_seconds;
     while (blockArray[ID].timeElapsed <= blockArray[ID].runTime || blockArray[ID].timeElapsed <= 50000000) {
@@ -67,10 +68,13 @@ int main(int argc, const char * argv[]) {
         } else {
             readyStateWait(ID);
         }
+//        }
+        blockArray[ID].timeElapsed += rand() % 500000;
     }
     
     printf("Process %i has waited for 50 milliseconds\n", ID);
     blockArray[ID].isValid = 0;
+//    blockArray[ID].didFinish = 1;
     sleep(1);
     detachEverything();
     return 0;
@@ -78,8 +82,10 @@ int main(int argc, const char * argv[]) {
 
 void readyStateWait(int ID) {
     while (1) {
-        if (blockArray[ID].isValid)
+        if (blockArray[ID].isValid) {
+            printf("Process %i became valid!\n", ID+1);
             break;
+        }
         sleep(1);
     }
 }
