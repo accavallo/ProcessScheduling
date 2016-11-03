@@ -89,41 +89,24 @@ int main(int argc, const char * argv[]) {
     processCount = 0;
     char procID[5];
     int bitArray[18] = {0}, totalProcesses = 0;
-    long long unsigned creationTime = 0, currentTime = 0, creationTimeSet = 0, processor_idle_time = 0;
+    long long unsigned creationTime = 0, currentTime = 0, creationTimeSet = 0, processor_idle_time = 0, previousTime = 0;
     pid_t pid, wpid;
     
     srand((unsigned)time(0));
-    alarm(30);
+    alarm(20);
     signal(SIGALRM, alarmHandler);
     
-//    for (index = 0; index < 5; index++) {
-//        newProcess(index+1, index);
-//        printf("blockArray[%i].priority: %i\n", index, blockArray[index].priority);
-//    }
-//    
-//    printf("Queue 0\n");
-//    printQueue(queue0);
-//    printf("Queue 1\n");
-//    printQueue(queue1);
-//    printf("Queue 2\n");
-//    printQueue(queue2);
-//    printf("Queue 3\n");
-//    printQueue(queue3);
-    
-    while (*seconds < 50 || totalProcesses == 100) {
+    while (*seconds < 50 && totalProcesses < 100) {
         if (creationTimeSet == 0) {
             creationTime = *seconds * 1000000000 + *nano_seconds + (rand() % 2000000000);
             creationTimeSet = 1;
-            printf("Creation time of process %i is set for %llu, %llu nanoseconds ahead.\n", processCount, creationTime, creationTime - currentTime);
+            totalProcesses++;
+            printf("Creation time of process %i is set for %llu\n", totalProcesses, creationTime);
         }
         currentTime = *seconds * 1000000000 + *nano_seconds;
         
 //        printf("currentTime: %llu\n", currentTime);
-        *nano_seconds += rand() % time_increment;
-        if (*nano_seconds >= 1000000000) {
-            (*seconds)++;
-            *nano_seconds %= 1000000000;
-        }
+        processor_idle_time = advanceTime();
         
         /* No more than 18 processes at a time, and the current time needs to be after the creation time that was set "randomly". */
         if (processCount < 18 && creationTime <= currentTime) {
@@ -136,13 +119,11 @@ int main(int argc, const char * argv[]) {
             pid = fork();
             sprintf(procID, "%i", processCount);
             processCount++;
-            totalProcesses++;
             creationTimeSet = 0;
-            newProcess(processCount, index);        //Not necessary, but it cleans up my main.
+            newProcess(totalProcesses, index);        //Not necessary, but it cleans up my main.
             if (pid == 0) {
-                
                 execl("./user", procID, (char *)NULL);
-                removeProcess(processCount-1);          //If the execl fails, this will essentially clear that process control block.
+                removeProcess(index);          //If the execl fails, this will essentially clear that process control block.
                 exit(EXIT_FAILURE);
             }
 //        } else {
@@ -156,65 +137,49 @@ int main(int argc, const char * argv[]) {
         /* Ensure something exists in each queue, no else statements, before executing any code */
         
         /* Every node, after it's time slice, will move to the next node in the queue. */
+        /* QUEUE 0 WILL STOP EVERY OTHER QUEUE FROM RUNNING! QUEUES 1, 2, AND 3 WILL BE A MULTILEVEL FEEDBACK QUEUE */
         /* Do queue0 stuff */
         if (queue0) {
-//            printf("Entering queue 0\n");
-            blockArray[queue0->location].isValid = 1;
-//            blockArray[queue1->location].isValid = 0;
-//            blockArray[queue2->location].isValid = 0;
-//            blockArray[queue3->location].isValid = 0;
-            if (blockArray[queue0->location].isValid)
-                addToQueue(0, queue0->location);
+            previousTime = currentTime;
+            currentTime = advanceTime();
+            queue0 = advanceProcess(queue0, currentTime - previousTime);
             
-            queue0 = queue0->next_node;
-        /* Do queue1 stuff */
-        } else if (queue1) {
-//            printf("Entering queue 1\n");
-//            blockArray[queue0->location].isValid = 0;
-            blockArray[queue1->location].isValid = 1;
-//            blockArray[queue2->location].isValid = 0;
-//            blockArray[queue3->location].isValid = 0;
-            if (blockArray[queue1->location].isValid)
-                addToQueue(1, queue1->location);
-            
-            queue1 = queue1->next_node;
-        /* Do queue2 stuff */
-        } else if (queue2) {
-//            printf("Entering queue 2\n");
-//            blockArray[queue0->location].isValid = 0;
-//            blockArray[queue1->location].isValid = 0;
-            blockArray[queue2->location].isValid = 1;
-//            blockArray[queue3->location].isValid = 0;
-            if (blockArray[queue2->location].isValid)
-                addToQueue(2, queue2->location);
-            
-            queue2 = queue2->next_node;
-        /* Do queue3 stuff */
-        } else if (queue3) {
-//            printf("Entering queue 3\n");
-//            blockArray[queue0->location].isValid = 0;
-//            blockArray[queue1->location].isValid = 0;
-//            blockArray[queue2->location].isValid = 0;
-            blockArray[queue3->location].isValid = 1;
-            if (blockArray[queue3->location].isValid)
-                addToQueue(3, queue3->location);
-            
-            queue3 = queue3->next_node;
+        } else {
+            /* Do queue1 stuff */
+            if (queue1) {
+                previousTime = currentTime;
+                currentTime = advanceTime();
+                queue1 = advanceProcess(queue1, currentTime - previousTime);
+            }
+            /* Do queue2 stuff */
+            if (queue2) {
+                previousTime = currentTime;
+                currentTime = advanceTime();
+                queue2 = advanceProcess(queue2, currentTime - previousTime);
+                
+            }
+            /* Do queue3 stuff */
+            if (queue3) {
+                previousTime = currentTime;
+                currentTime = advanceTime();
+                queue3 = advanceProcess(queue3, currentTime - previousTime);
+            }
         }
-        
         /* Release finished processes and set the validity of that process in the bit vector back to 0. */
         int processID = waitpid(0, NULL, WNOHANG);
         if (processID > 0) {
-            printf("Process %i finished execution.\n", processID);
             processCount--;
             for (index = 0; index < 18; index++) {
                 if (blockArray[index].pid == processID) {
+                    printf("Process %i finished execution.\n", blockArray[index].procID);
                     bitArray[index] = 0;
                     blockArray[index].isValid = 0;
+                    removeProcess(index);
                     break;
                 }
             }
         }
+        previousTime = currentTime;
 //        sleep(1);
     }   /* End while loop */
 
@@ -246,6 +211,8 @@ void addToQueue(int queueNum, int location) {
                     current = current->next_node;
                 current->next_node = queue;
             }
+//            printf("Queue 0\n");
+//            printQueue(queue0);
             break;
         case 1:
             if (!queue1)
@@ -256,6 +223,8 @@ void addToQueue(int queueNum, int location) {
                     current = current->next_node;
                 current->next_node = queue;
             }
+//            printf("Queue 1\n");
+//            printQueue(queue1);
             break;
         case 2:
             if (!queue2)
@@ -266,6 +235,8 @@ void addToQueue(int queueNum, int location) {
                     current = current->next_node;
                 current->next_node = queue;
             }
+//            printf("Queue 2\n");
+//            printQueue(queue2);
             break;
         case 3:
             if (!queue3)
@@ -276,6 +247,8 @@ void addToQueue(int queueNum, int location) {
                     current = current->next_node;
                 current->next_node = queue;
             }
+//            printf("Queue 3\n");
+//            printQueue(queue3);
             break;
         
         default:
@@ -284,6 +257,26 @@ void addToQueue(int queueNum, int location) {
     }
 }
 
+procq_t * advanceProcess(procq_t *queue, long long unsigned timeElapsed) {
+    blockArray[queue->location].isValid = 1;
+    blockArray[queue->location].timeElapsed += timeElapsed;
+    if (blockArray[queue->location].isValid && !blockArray[queue->location].didFinish)
+        addToQueue(blockArray[queue->location].priority, queue->location);
+    
+    blockArray[queue->location].isValid = 0;
+//    sleep(1);
+    queue = queue->next_node;
+    return queue;
+}
+
+long long unsigned advanceTime() {
+    *nano_seconds += rand() % 1000;
+    if (*nano_seconds >= 1000000000) {
+        (*seconds)++;
+        *nano_seconds %= 1000000000;
+    }
+    return *seconds * 1000000000 + *nano_seconds;
+}
 void printQueue(procq_t *queue) {
     while (queue) {
         printf("queue->location: %i\n",queue->location);
@@ -307,7 +300,7 @@ void newProcess(int processCount, int index) {
     blockArray[index].timeElapsed = 0;
     blockArray[index].burstTime = 0;
     blockArray[index].timeInSystem = 0;
-//    blockArray[index].didFinish = 0;
+    blockArray[index].didFinish = 0;
     blockArray[index].isValid = 0;
     blockArray[index].procID = processCount;
     blockArray[index].pid = getpid();
@@ -316,16 +309,18 @@ void newProcess(int processCount, int index) {
      Queues 2 and 3 are only available during runtime. */
     srand((unsigned)time(0));
     int queueChance = rand() % 100;
-    if (queueChance >= 11) {
-        //block->priority = 1;
-        blockArray[index].priority = 1;
-        addToQueue(1, index);
-    }
-    else {
-        //block->priority = 0;
-        blockArray[index].priority = 0;
-        addToQueue(0, index);
-    }
+//    if (queueChance >= 11) {
+//        //block->priority = 1;
+//        blockArray[index].priority = 1;
+//        addToQueue(1, index);
+//    }
+//    else {
+//        //block->priority = 0;
+//        blockArray[index].priority = 0;
+//        addToQueue(0, index);
+//    }
+    blockArray[index].priority = rand() % 4;
+    addToQueue(blockArray[index].priority, index);
  
 }
 
@@ -334,6 +329,7 @@ void removeProcess(int index) {
     blockArray[index].runTime = 0;
     blockArray[index].timeElapsed = 0;
     blockArray[index].burstTime = 0;
+    blockArray[index].didFinish = 1;
     blockArray[index].timeInSystem = 0;
     blockArray[index].priority = 4;
     blockArray[index].isValid = 0;
