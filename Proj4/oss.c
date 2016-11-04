@@ -13,7 +13,7 @@ int main(int argc, const char * argv[]) {
     signal(SIGSEGV, faultHandler);
     signal(SIGINT, interruptHandler);
     
-    int option, index, time_increment = 1000;
+    int option, index;
     char *fileName = "logfile.txt";
     
     while ((option = getopt(argc, (char **)argv, "hl:")) != -1) {
@@ -59,7 +59,7 @@ int main(int argc, const char * argv[]) {
     /******** NOTE: *********
      seconds_memory ONLY NEEDS TO BE sizeof(int) * 2! block_memory needs only be sizeof(PCB) * 18
      ************************/
-    if ((seconds_memory = shmget(TIMEKEY, sizeof(int) * 2, IPC_CREAT | 0777)) == -1) {
+    if ((seconds_memory = shmget(TIMEKEY, sizeof(int) * 3, IPC_CREAT | 0777)) == -1) {
         printf("Error: Failed to create shared memory for seconds. Exiting program...\n");
         perror("OSS shmcreat");
         exit(1);
@@ -72,7 +72,7 @@ int main(int argc, const char * argv[]) {
     }
     
     nano_seconds = seconds + 1;
-    bit_vector = seconds + 2;
+    quantum = seconds + 2;
     
     if ((block_memory = shmget(PCBKEY, sizeof(PCB) * 18, IPC_CREAT | 0777)) == -1) {
         printf("Error: Failed to create shared memory for Process Control Blocks. Exiting program...\n");
@@ -88,25 +88,25 @@ int main(int argc, const char * argv[]) {
     
     processCount = 0;
     char procID[5];
-    int bitArray[18] = {0}, totalProcesses = 0;
+    int bitArray[18] = {0}, totalProcesses = 0, processor_idle = 1;
     long long unsigned creationTime = 0, currentTime = 0, creationTimeSet = 0, processor_idle_time = 0, previousTime = 0;
     pid_t pid, wpid;
     
     srand((unsigned)time(0));
-    alarm(20);
+    alarm(60);
     signal(SIGALRM, alarmHandler);
     
     while (*seconds < 50 && totalProcesses < 100) {
         if (creationTimeSet == 0) {
-            creationTime = *seconds * 1000000000 + *nano_seconds + (rand() % 2000000000);
+            int newTime = rand() % 2000000000;
+            creationTime = *seconds * 1000000000 + *nano_seconds + newTime;
             creationTimeSet = 1;
             totalProcesses++;
-            printf("Creation time of process %i is set for %llu\n", totalProcesses, creationTime);
+            printf("Creation time of process %i is set for %llu, %i nanoseconds ahead.\n", totalProcesses, creationTime, newTime);
         }
         currentTime = *seconds * 1000000000 + *nano_seconds;
         
 //        printf("currentTime: %llu\n", currentTime);
-        processor_idle_time = advanceTime();
         
         /* No more than 18 processes at a time, and the current time needs to be after the creation time that was set "randomly". */
         if (processCount < 18 && creationTime <= currentTime) {
@@ -126,43 +126,42 @@ int main(int argc, const char * argv[]) {
                 removeProcess(index);          //If the execl fails, this will essentially clear that process control block.
                 exit(EXIT_FAILURE);
             }
-//        } else {
-//            printf("Waiting time is %i.%i\n", *seconds, *nano_seconds);
         }
-
-        
-        
-        /* Do queue stuff here. Maybe some if else statements for the various queues. Maybe flip the isValid bit in the PCB and have the
-           process wait until it is flipped */
-        /* Ensure something exists in each queue, no else statements, before executing any code */
-        
         /* Every node, after it's time slice, will move to the next node in the queue. */
         /* QUEUE 0 WILL STOP EVERY OTHER QUEUE FROM RUNNING! QUEUES 1, 2, AND 3 WILL BE A MULTILEVEL FEEDBACK QUEUE */
+        
         /* Do queue0 stuff */
         if (queue0) {
             previousTime = currentTime;
-            currentTime = advanceTime();
-            queue0 = advanceProcess(queue0, currentTime - previousTime);
+            currentTime = advanceTime(0);
+            *quantum = (unsigned int)(currentTime - previousTime);
+            queue0 = advanceProcess(queue0);
+            processor_idle = 0;
             
         } else {
+            /* Advance queue1 processes at a certain rate. Queue2 will be double that time, and queue3 will be double that of queue2. */
             /* Do queue1 stuff */
             if (queue1) {
                 previousTime = currentTime;
-                currentTime = advanceTime();
-                queue1 = advanceProcess(queue1, currentTime - previousTime);
+                currentTime = advanceTime(1);
+                *quantum = (unsigned int)(currentTime - previousTime);
+                queue1 = advanceProcess(queue1);
+                processor_idle = 0;
             }
             /* Do queue2 stuff */
             if (queue2) {
                 previousTime = currentTime;
-                currentTime = advanceTime();
-                queue2 = advanceProcess(queue2, currentTime - previousTime);
-                
+                currentTime = advanceTime(1);
+                *quantum = (unsigned int)(currentTime - previousTime);
+                queue2 = advanceProcess(queue2);
+                processor_idle = 0;
             }
             /* Do queue3 stuff */
             if (queue3) {
                 previousTime = currentTime;
-                currentTime = advanceTime();
-                queue3 = advanceProcess(queue3, currentTime - previousTime);
+                currentTime = advanceTime(3);
+                *quantum = (unsigned int)(currentTime - previousTime);
+                queue3 = advanceProcess(queue3);
             }
         }
         /* Release finished processes and set the validity of that process in the bit vector back to 0. */
@@ -180,7 +179,13 @@ int main(int argc, const char * argv[]) {
             }
         }
         previousTime = currentTime;
-//        sleep(1);
+        
+        
+        //TODO: Figure out a way to determine if the processor will be used.
+        /* If all 4 queues are empty then the processor is idle. In which case the processor needs to advance it's time. */
+        if (!queue3 && !queue2 && !queue1 && !queue0)
+            processor_idle_time = advanceTime(5);
+        
     }   /* End while loop */
 
 
@@ -198,7 +203,6 @@ void addToQueue(int queueNum, int location) {
     procq_t *queue, *current;
     queue = (procq_t *)malloc(sizeof(procq_t));
     queue->location = location;
-    //queue->process = process;
     queue->next_node = NULL;
  
     switch (queueNum) {
@@ -257,20 +261,40 @@ void addToQueue(int queueNum, int location) {
     }
 }
 
-procq_t * advanceProcess(procq_t *queue, long long unsigned timeElapsed) {
+//TODO: This method needs to change.
+procq_t * advanceProcess(procq_t *queue) {
     blockArray[queue->location].isValid = 1;
-    blockArray[queue->location].timeElapsed += timeElapsed;
+//    sleep(1);
+//    blockArray[queue->location].timeElapsed += timeElapsed;
     if (blockArray[queue->location].isValid && !blockArray[queue->location].didFinish)
         addToQueue(blockArray[queue->location].priority, queue->location);
     
     blockArray[queue->location].isValid = 0;
-//    sleep(1);
     queue = queue->next_node;
+    *nano_seconds -= *quantum;
     return queue;
 }
 
-long long unsigned advanceTime() {
-    *nano_seconds += rand() % 1000;
+long long unsigned advanceTime(int queue) {
+    /* Instead of trying to get each queue to *hopefully* use up their entire time slice, this will ensure that each queue will use exactly a certain amount of time. Queue2 will be twice that of queue1 and queue3 will be twice that of queue2. Queue0 has no relation with the other time slices. */
+    switch (queue) {
+        case 0:
+            *nano_seconds += TIME_SLICE;
+            break;
+        case 1:
+            *nano_seconds += TIME_SLICE;
+            break;
+        case 2:
+            *nano_seconds += TIME_SLICE * 2;
+            break;
+        case 3:
+            *nano_seconds += TIME_SLICE * 4;
+            break;
+        default:
+            *nano_seconds += rand() % 1000;
+            break;
+    }
+    
     if (*nano_seconds >= 1000000000) {
         (*seconds)++;
         *nano_seconds %= 1000000000;
@@ -285,18 +309,10 @@ void printQueue(procq_t *queue) {
 }
 
 void newProcess(int processCount, int index) {
-/*    PCB *block = malloc(sizeof(PCB));
-    block->timeCreated = *seconds * 1000000000 + *nano_seconds;
-    block->runTime = 0;
-    block->timeElapsed = 0;
-    block->burstTime = 0;
-    block->timeInSystem = 0;
-    block->isValid = 0;
-    block->procID = processCount;
-    block->pid = getpid();
-*/
+    srand((unsigned)time(0));
+    
     blockArray[index].timeCreated = *seconds * 1000000000 + *nano_seconds;
-    blockArray[index].runTime = 0;
+    blockArray[index].runTime = rand() % 50000000;
     blockArray[index].timeElapsed = 0;
     blockArray[index].burstTime = 0;
     blockArray[index].timeInSystem = 0;
@@ -307,20 +323,17 @@ void newProcess(int processCount, int index) {
     
     /* 90% of the processes end up in queue 1 and about 10% in queue 0.
      Queues 2 and 3 are only available during runtime. */
-    srand((unsigned)time(0));
     int queueChance = rand() % 100;
-//    if (queueChance >= 11) {
-//        //block->priority = 1;
-//        blockArray[index].priority = 1;
-//        addToQueue(1, index);
-//    }
-//    else {
-//        //block->priority = 0;
-//        blockArray[index].priority = 0;
-//        addToQueue(0, index);
-//    }
-    blockArray[index].priority = rand() % 4;
-    addToQueue(blockArray[index].priority, index);
+    if (queueChance >= 11) {
+        blockArray[index].priority = 1;
+        addToQueue(1, index);
+    }
+    else {
+        blockArray[index].priority = 0;
+        addToQueue(0, index);
+    }
+//    blockArray[index].priority = rand() % 4;
+//    addToQueue(blockArray[index].priority, index);
  
 }
 
@@ -388,7 +401,7 @@ void detachEverything() {
     /* Detach from and remove shared memory */
     shmdt(seconds);
     shmdt(nano_seconds);
-    shmdt(bit_vector);
+    shmdt(quantum);
     shmctl(seconds_memory, IPC_RMID, NULL);     //Remove shared memory
     
     shmdt(blockArray);

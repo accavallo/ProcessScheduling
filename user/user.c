@@ -21,7 +21,7 @@ int main(int argc, const char * argv[]) {
     const int ID = atoi(argv[0]);
         
     /* Attach to shared memory for time */
-    seconds_memory = shmget(TIMEKEY, sizeof(int) * 2, 0777);
+    seconds_memory = shmget(TIMEKEY, sizeof(int) * 3, 0777);
     if (seconds_memory == -1) {
         printf("User %i failed to access time memory. Exiting...\n", ID+1);
         exit(1);
@@ -33,6 +33,7 @@ int main(int argc, const char * argv[]) {
     }
     
     nano_seconds = seconds + 1;
+    quantum = seconds + 2;
     
     /* Attach to the Process Control Block array */
     block_memory = shmget(PCBKEY, sizeof(PCB) * 18, 0777);
@@ -44,35 +45,37 @@ int main(int argc, const char * argv[]) {
         printf("User %i failed to attach to block memory. Exiting...\n", ID+1);
     }
     
-    long long unsigned quantum = 0;
-//    while (1) {
-//        if (nextInQueue) {
-//            
-//        }
-//        sleep(1);
-//    }
 //    printf("blockArray[%i].pid: %i\n", ID, blockArray[ID].pid);
     
 //    printf("%i's creation time is %llu with a priority of %i\n", blockArray[ID].procID, blockArray[ID].timeCreated, blockArray[ID].priority);
+    printf("Process %i has a runtime of %llu\n", ID+1, blockArray[ID].runTime);
     /* 50000000 == 50 milliseconds */
     /* Need to set how long the program will run for */
     /* Need to change the process' validity back to 0 if it hasn't finished so it will wait its turn. */
     srand((unsigned)time(0));
-    
-    long long currentTime = *seconds * 1000000000 + *nano_seconds;
-    long long previousTime = *seconds * 1000000000 + *nano_seconds;
+    //TODO: Determine whether the process will finish it's time quantum
     while (blockArray[ID].timeElapsed <= blockArray[ID].runTime || blockArray[ID].timeElapsed <= 50000000) {
-//        while (blockArray[ID].timeElapsed < 50000000) {
+        /* Make sure the process is valid, otherwise put it into a ready state. */
         if (blockArray[ID].isValid) {
-            currentTime = *seconds * 1000000000 + *nano_seconds;
-//            blockArray[ID].timeElapsed += currentTime - previousTime;
-            previousTime = currentTime;
+            /* Check if the process will run for it's entire quantum. */
+            if (rand() % 2) {
+                /* The process uses the entire quantum in this case... */
+                blockArray[ID].timeElapsed += *quantum;
+                blockArray[ID].burstTime += *quantum;
+                *quantum = 0;
+                /* The process finished it's quantum, therefore it moves down a queue. */
+                if (blockArray[ID].priority != 0 && blockArray[ID].priority != 3)
+                    blockArray[ID].priority--;
+            } else {
+                /* ...and only uses a part of it in this case. */
+                int time_slice = rand() % *quantum;
+                blockArray[ID].timeElapsed += time_slice;
+                *quantum -= time_slice;
+            }
         } else {
-//            printf("Process %i moving to inactive...\n", blockArray[ID].procID);
+            printf("Process %i moving to inactive...\n", blockArray[ID].procID);
             readyStateWait(ID);
         }
-//        }
-        blockArray[ID].timeElapsed += rand() % 500000;
     }
     
 //    printf("Process %i has waited for %llu nanoseconds\n", ID + 1, blockArray[ID].timeElapsed);
@@ -84,9 +87,11 @@ int main(int argc, const char * argv[]) {
 }
 
 void readyStateWait(int ID) {
+    
+    blockArray[ID].burstTime = 0;
     while (1) {
         if (blockArray[ID].isValid) {
-//            printf("Process %i became valid!\n", blockArray[ID].procID);
+            printf("Process %i became valid!\n", blockArray[ID].procID);
             break;
         }
 //        sleep(1);
@@ -126,5 +131,6 @@ void alarmHandler() {
 void detachEverything() {
     shmdt(seconds);
     shmdt(nano_seconds);
+    shmdt(quantum);
     shmdt(blockArray);
 }

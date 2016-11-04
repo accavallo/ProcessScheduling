@@ -25,6 +25,7 @@
 
 #define TIMEKEY 18137644
 #define PCBKEY 44673181
+#define TIME_SLICE 1000
 
 typedef struct process_control_block {
     long long timeCreated;      //Time the process was created
@@ -51,7 +52,7 @@ int block_memory;
 /* Items in shared memory */
 unsigned int *seconds;
 unsigned int *nano_seconds;
-unsigned int *bit_vector;
+unsigned int *quantum;
 PCB *blockArray;
 
 void faultHandler();
@@ -64,9 +65,8 @@ void detachEverything();
 void newProcess(int, int);
 void removeProcess(int);
 void addToQueue(int, int);
-procq_t * advanceProcess(procq_t *, long long unsigned);
-long long unsigned advanceTime();
-//void addToQueue(int, PCB *, int);
+procq_t * advanceProcess(procq_t *);
+long long unsigned advanceTime(int);
 void printQueue(procq_t *);
 void printHelp();
 
