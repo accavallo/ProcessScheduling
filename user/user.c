@@ -48,54 +48,58 @@ int main(int argc, const char * argv[]) {
 //    printf("blockArray[%i].pid: %i\n", ID, blockArray[ID].pid);
     
 //    printf("%i's creation time is %llu with a priority of %i\n", blockArray[ID].procID, blockArray[ID].timeCreated, blockArray[ID].priority);
-    printf("Process %i has a runtime of %llu\n", ID+1, blockArray[ID].runTime);
+//    printf("Process %i has a runtime of %llu\n", ID+1, blockArray[ID].runTime);
+    
     /* 50000000 == 50 milliseconds */
-    /* Need to set how long the program will run for */
     /* Need to change the process' validity back to 0 if it hasn't finished so it will wait its turn. */
     srand((unsigned)time(0));
-    //TODO: Determine whether the process will finish it's time quantum
-    while (blockArray[ID].timeElapsed <= blockArray[ID].runTime || blockArray[ID].timeElapsed <= 50000000) {
+//    blockArray[ID].timeElapsed <= blockArray[ID].runTime || 
+    while (blockArray[ID].timeElapsed <= 50000000) {
         /* Make sure the process is valid, otherwise put it into a ready state. */
         if (blockArray[ID].isValid) {
             /* Check if the process will run for it's entire quantum. */
-            if (rand() % 2) {
+            if (rand() % IO_CHANCE) {
                 /* The process uses the entire quantum in this case... */
                 blockArray[ID].timeElapsed += *quantum;
                 blockArray[ID].burstTime += *quantum;
                 *quantum = 0;
                 /* The process finished it's quantum, therefore it moves down a queue. */
-                if (blockArray[ID].priority != 0 && blockArray[ID].priority != 3)
-                    blockArray[ID].priority--;
+                if (blockArray[ID].priority != 0 && blockArray[ID].priority != 3) {
+                    blockArray[ID].priority++;
+//                    printf("Lowering priority of process %i to %i\n", blockArray[ID].procID, blockArray[ID].priority);
+                }
             } else {
                 /* ...and only uses a part of it in this case. */
                 int time_slice = rand() % *quantum;
                 blockArray[ID].timeElapsed += time_slice;
                 *quantum -= time_slice;
+                if (blockArray[ID].priority == 3){
+                    blockArray[ID].priority = 1;
+//                    printf("Raising priority of process %i to 1\n", blockArray[ID].procID);
+                }
             }
         } else {
-            printf("Process %i moving to inactive...\n", blockArray[ID].procID);
+//            printf("Process %i moving to inactive...\n", blockArray[ID].procID);
             readyStateWait(ID);
         }
     }
     
-//    printf("Process %i has waited for %llu nanoseconds\n", ID + 1, blockArray[ID].timeElapsed);
     blockArray[ID].isValid = 0;
     blockArray[ID].didFinish = 1;
-    sleep(1);
     detachEverything();
     return 0;
 }
 
 void readyStateWait(int ID) {
-    
+    long long unsigned start_wait_time = *seconds * 1000000000 + *nano_seconds;
     blockArray[ID].burstTime = 0;
     while (1) {
         if (blockArray[ID].isValid) {
-            printf("Process %i became valid!\n", blockArray[ID].procID);
+//            printf("Process %i became valid!\n", blockArray[ID].procID);
             break;
         }
-//        sleep(1);
     }
+    blockArray[ID].waitTime += ((*seconds * 1000000000 + *nano_seconds) - start_wait_time);
 }
 
 void faultHandler() {

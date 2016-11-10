@@ -8,13 +8,15 @@
 #include "Proj4.h"
 
 static procq_t *queue0 = NULL, *queue1 = NULL, *queue2 = NULL, *queue3 = NULL;
+static long long unsigned processor_idle_time = 0, average_wait_time = 0, average_turnaround = 0;
+static int totalProcesses = 0;
 
 int main(int argc, const char * argv[]) {
     signal(SIGSEGV, faultHandler);
     signal(SIGINT, interruptHandler);
     
     int option, index;
-    char *fileName = "logfile.txt";
+/*    char *fileName = "logfile.txt";
     
     while ((option = getopt(argc, (char **)argv, "hl:")) != -1) {
         switch (option) {
@@ -47,17 +49,11 @@ int main(int argc, const char * argv[]) {
     
     for (index = optind; index < argc; index++)
         printf("Non-option argument %s.\n", argv[index]);
-
-    
-    
-    printf("Suuuup....\n");
-    int processCount, status;
-    
-    printf("pid = %i\n", getpid());
-    
+ */
+ 
     /* Set up shared memory */
     /******** NOTE: *********
-     seconds_memory ONLY NEEDS TO BE sizeof(int) * 2! block_memory needs only be sizeof(PCB) * 18
+     seconds_memory ONLY NEEDS TO BE sizeof(int) * 3 (seconds, nano_seconds, and quantum)! block_memory needs only be sizeof(PCB) * 18
      ************************/
     if ((seconds_memory = shmget(TIMEKEY, sizeof(int) * 3, IPC_CREAT | 0777)) == -1) {
         printf("Error: Failed to create shared memory for seconds. Exiting program...\n");
@@ -86,19 +82,19 @@ int main(int argc, const char * argv[]) {
         exit(1);
     }
     
-    processCount = 0;
     char procID[5];
-    int bitArray[18] = {0}, totalProcesses = 0, processor_idle = 1;
-    long long unsigned creationTime = 0, currentTime = 0, creationTimeSet = 0, processor_idle_time = 0, previousTime = 0;
+    int bitArray[18] = {0}, processor_idle = 1, processCount = 0, status;
+    long long unsigned creationTime = 0, currentTime = 0, creationTimeSet = 0, previousTime = 0;
     pid_t pid, wpid;
     
     srand((unsigned)time(0));
-    alarm(60);
+    alarm(ALARM_DURATION);
     signal(SIGALRM, alarmHandler);
     
-    while (*seconds < 50 && totalProcesses < 100) {
+    while (*seconds < 10) {
         if (creationTimeSet == 0) {
             int newTime = rand() % 2000000000;
+            sleep(1);
             creationTime = *seconds * 1000000000 + *nano_seconds + newTime;
             creationTimeSet = 1;
             totalProcesses++;
@@ -109,7 +105,7 @@ int main(int argc, const char * argv[]) {
 //        printf("currentTime: %llu\n", currentTime);
         
         /* No more than 18 processes at a time, and the current time needs to be after the creation time that was set "randomly". */
-        if (processCount < 18 && creationTime <= currentTime) {
+        if (processCount < MAX_PROCESSES && creationTime <= currentTime) {
             for (index = 0; index < 18; index++)
                 if(bitArray[index] == 0) {
                     bitArray[index] = 1;
@@ -173,6 +169,8 @@ int main(int argc, const char * argv[]) {
                     printf("Process %i finished execution.\n", blockArray[index].procID);
                     bitArray[index] = 0;
                     blockArray[index].isValid = 0;
+                    average_wait_time += blockArray[index].waitTime;
+                    average_turnaround += ((*seconds * 1000000000 + *nano_seconds) - blockArray[index].timeCreated);
                     removeProcess(index);
                     break;
                 }
@@ -180,8 +178,6 @@ int main(int argc, const char * argv[]) {
         }
         previousTime = currentTime;
         
-        
-        //TODO: Figure out a way to determine if the processor will be used.
         /* If all 4 queues are empty then the processor is idle. In which case the processor needs to advance it's time. */
         if (!queue3 && !queue2 && !queue1 && !queue0)
             processor_idle_time = advanceTime(5);
@@ -189,10 +185,9 @@ int main(int argc, const char * argv[]) {
     }   /* End while loop */
 
 
+    /* This code should never actually be executed, but in the off chance that it is... */
     sleep(3);
     while ((wpid = wait(&status)) > 0);
-    
-    printf("Time is %i.%i\n", *seconds, *nano_seconds);
     printf("Finished waiting\n");
 
     detachEverything();
@@ -261,10 +256,8 @@ void addToQueue(int queueNum, int location) {
     }
 }
 
-//TODO: This method needs to change.
 procq_t * advanceProcess(procq_t *queue) {
     blockArray[queue->location].isValid = 1;
-//    sleep(1);
 //    blockArray[queue->location].timeElapsed += timeElapsed;
     if (blockArray[queue->location].isValid && !blockArray[queue->location].didFinish)
         addToQueue(blockArray[queue->location].priority, queue->location);
@@ -279,7 +272,7 @@ long long unsigned advanceTime(int queue) {
     /* Instead of trying to get each queue to *hopefully* use up their entire time slice, this will ensure that each queue will use exactly a certain amount of time. Queue2 will be twice that of queue1 and queue3 will be twice that of queue2. Queue0 has no relation with the other time slices. */
     switch (queue) {
         case 0:
-            *nano_seconds += TIME_SLICE;
+            *nano_seconds += QUEUE0_QUANTUM;
             break;
         case 1:
             *nano_seconds += TIME_SLICE;
@@ -291,7 +284,7 @@ long long unsigned advanceTime(int queue) {
             *nano_seconds += TIME_SLICE * 4;
             break;
         default:
-            *nano_seconds += rand() % 1000;
+            *nano_seconds += rand() % TIME_INCREMENT;
             break;
     }
     
@@ -312,7 +305,7 @@ void newProcess(int processCount, int index) {
     srand((unsigned)time(0));
     
     blockArray[index].timeCreated = *seconds * 1000000000 + *nano_seconds;
-    blockArray[index].runTime = rand() % 50000000;
+    blockArray[index].waitTime = 0;
     blockArray[index].timeElapsed = 0;
     blockArray[index].burstTime = 0;
     blockArray[index].timeInSystem = 0;
@@ -324,7 +317,7 @@ void newProcess(int processCount, int index) {
     /* 90% of the processes end up in queue 1 and about 10% in queue 0.
      Queues 2 and 3 are only available during runtime. */
     int queueChance = rand() % 100;
-    if (queueChance >= 11) {
+    if (queueChance > PRIORITY_CHANCE) {
         blockArray[index].priority = 1;
         addToQueue(1, index);
     }
@@ -332,14 +325,11 @@ void newProcess(int processCount, int index) {
         blockArray[index].priority = 0;
         addToQueue(0, index);
     }
-//    blockArray[index].priority = rand() % 4;
-//    addToQueue(blockArray[index].priority, index);
- 
 }
 
 void removeProcess(int index) {
     blockArray[index].timeCreated = 0;
-    blockArray[index].runTime = 0;
+    blockArray[index].waitTime = 0;
     blockArray[index].timeElapsed = 0;
     blockArray[index].burstTime = 0;
     blockArray[index].didFinish = 1;
@@ -359,7 +349,7 @@ void printHelp() {
 }
 
 void faultHandler() {
-    printf("\nDO YOU WANT TO GO TO WAR BALAKE?! GO SEE PRINCIPLE O'SHAUGHNESSY!\n");
+    printf("\nDo you want to go to war Balake? I'm for real.\n");
     pid_t pid = getpid(), wpid, groupID = getpgrp(); int status = 0;
     killpg(groupID, SIGINT);
     while ((wpid = wait(&status)) > 0); //Wait for all children to exit before continuing execution.
@@ -398,6 +388,11 @@ void alarmHandler() {
 }
 
 void detachEverything() {
+    /* Regardless of whether this thing will finish normally, or not (it never will), we need to print out the processor idle time and other things like that. */
+    printf("Time is %i.%i\n", *seconds, *nano_seconds);
+    printf("Processor idle time: %llu nanoseconds.\n", processor_idle_time);
+    printf("Average wait time: %.02f nanoseconds.\n", (double)(average_wait_time / totalProcesses));
+    printf("Average turnaround time: %.02f nanoseconds.\n", (double)(average_turnaround / totalProcesses));
     /* Detach from and remove shared memory */
     shmdt(seconds);
     shmdt(nano_seconds);
